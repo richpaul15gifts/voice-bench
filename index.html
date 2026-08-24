@@ -18,6 +18,7 @@
 
   /* the widget — edge to edge on mobile, capped column on desktop */
   .app {
+    position: relative;   /* the credit warning is contained by the widget */
     width: 100%;
     max-width: 440px;
     display: flex;
@@ -47,6 +48,92 @@
     border: 1px solid #d6d6d8;
     border-radius: 7px;
     padding: 5px 6px;
+  }
+
+  /* credit warning — in-page, because embedded browsers suppress confirm() */
+  .modal-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0,0,0,.32);
+  }
+  .modal {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.24);
+  }
+  .modal h2 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: #111;
+  }
+  .modal p {
+    margin: 0 0 18px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #555;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .modal-actions button {
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modal-actions .ghost   { background: #ececed; color: #333; }
+  .modal-actions .primary { background: #0b84ff; color: #fff; }
+
+  /* how the selected rung actually works — plain English, for anyone watching */
+  .banner {
+    padding: 7px 12px;
+    background: #fffbe8;
+    border-bottom: 1px solid #f0e6c0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: #6b5a1e;
+  }
+  /* one line until the example is opened, so it never eats the conversation */
+  .banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+  }
+  .banner[hidden] { display: none; }
+  .banner span { flex: 1 1 auto; }
+  .banner .toggle {
+    flex: 0 0 auto;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .banner .demo {
+    flex: 1 0 100%;
+    margin-top: 4px;
+    padding: 7px 9px;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: #fff;
+    border: 1px solid #e6dcb4;
+    border-radius: 6px;
+    cursor: pointer;
   }
 
   /* chat area */
@@ -102,11 +189,65 @@
     border: 1px solid #d6d6d8;
     border-radius: 20px;
     padding: 10px 14px;
-    font-size: 16px;
+    /* room for the mic only when the mic is actually there */
+    transition: padding-right .12s ease;
+    /* a textarea so the cleanup can put real line breaks in */
+    resize: none;
+    max-height: 140px;
+    line-height: 1.35;
+    font-size: 16px;          /* 16px or iOS zooms the page on focus */
     outline: none;
-    font-family: inherit;
+    font-family: inherit;     /* textareas default to monospace otherwise */
   }
+  .field[data-mic="on"] #input { padding-right: 42px; }
   #input:focus { border-color: #0b84ff; }
+  /* U2 — our own mic button, sitting inside the field, device's engine behind it */
+  .field {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+  }
+  #mic {
+    position: absolute;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #8a8a8e;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  /* must beat `display: grid` above, or the hidden attribute does nothing */
+  #mic[hidden] { display: none; }
+  #mic svg { width: 20px; height: 20px; fill: currentColor; display: block; }
+  #mic[data-state="listening"] {
+    background: #ff3b30;
+    color: #fff;
+    animation: micPulse 1.4s ease-in-out infinite;
+  }
+  #mic[disabled] { opacity: .4; cursor: not-allowed; }
+  /* opacity, not scale — scale would fight the centring transform */
+  @keyframes micPulse { 50% { opacity: .72; } }
+  @media (prefers-reduced-motion: reduce) {
+    #mic[data-state="listening"] { animation: none; }
+  }
+  .rung-note {
+    margin: 0;
+    padding: 0 14px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #777;
+  }
+  .rung-note[data-tone="error"] { color: #b3261e; }
+  .rung-note[data-tone="live"]  { color: #06489a; }
+
   #send {
     flex-shrink: 0;
     border: 0;
@@ -124,32 +265,60 @@
 <div class="app">
   <div class="bench-bar">
     <select id="inputRung" aria-label="User voice">
-      <option value="u1" selected>U1 · Native dictation</option>
-      <option value="u2" disabled>U2 · Our own mic UI</option>
-      <option value="u3" disabled>U3 · Cleanup pass</option>
-      <option value="u4" disabled>U4 · Speech to text (mic permission needed)</option>
+      <option value="u1" selected>User 1 – Native dictation</option>
+      <option value="u2">User 2 – Our own mic UI</option>
+      <option value="u3">User 3 – Cleanup pass</option>
+      <option value="u4" disabled>User 4 – Speech to text (mic permission needed)</option>
     </select>
     <select id="outputRung" aria-label="Humara voice">
-      <option value="h1" selected>H1 · Text only</option>
-      <option value="h2">H2 · Robot read-back</option>
-      <option value="h3" disabled>H3 · Real voice read-back</option>
-      <option value="h4" disabled>H4 · Selective speech</option>
+      <option value="h1" selected>Humara 1 – Text only</option>
+      <option value="h2">Humara 2 – Robot read-back</option>
+      <option value="h3">Humara 3 – Real voice read-back</option>
+      <option value="h4">Humara 4 – Selective speech</option>
     </select>
   </div>
+  <div class="banner" id="banner" hidden></div>
   <div id="chat"></div>
   <div class="composer">
-    <input id="input" type="text" placeholder="Message" autocomplete="off">
+    <div class="field" id="field">
+      <textarea id="input" rows="1" placeholder="Ask a question" autocomplete="off"></textarea>
+      <button id="mic" data-state="idle" aria-label="Start dictation" hidden>
+        <svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M480-400q-50 0-85-35t-35-85v-240q0-50 35-85t85-35q50 0 85 35t35 85v240q0 50-35 85t-85 35Zm-40 280v-123q-104-14-172-93t-68-184h80q0 83 58.5 141.5T480-320q83 0 141.5-58.5T680-520h80q0 105-68 184t-172 93v123h-80Z"/></svg>
+      </button>
+    </div>
     <button id="send">Send</button>
   </div>
+  <p class="rung-note" id="rungNote" hidden></p>
 </div>
 
 <script>
+// `written` is what the bubble shows and every rung but H4 speaks.
+// `spoken` is the same content said conversationally — H4 only. Nothing is
+// dropped: if a customer following by ear can't answer as well as one reading
+// the bubble, the rewrite has gone too far.
 const REPLIES = [
-  "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
-  "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
-  "I don't see any outstanding balance on this account — is there something specific you'd like me to look into?",
-  "I can get an appointment booked for a technician visit. What day works best for you?",
-  "Happy to walk you through the differences between our internet-only and bundle plans."
+  {
+    written: "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
+    spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?",
+    audio:   "audio/h3-1.mp3"    // already paid for — see `audio` note below
+  },
+  {
+    written: "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
+    spoken:  "From what you've said, our 500 meg plan looks like a good fit. Want me to check availability at your address?"
+  },
+  {
+    written: "I don't see any outstanding balance on this account — is there something specific you'd like me to look into?",
+    spoken:  "There's no outstanding balance on this account. Was there something specific you wanted me to look at?"
+  },
+  {
+    written: "I can get an appointment booked for a technician visit. What day works best for you?",
+    spoken:  "I can get a technician booked in. What day works best for you?"
+  },
+  {
+    written: "Happy to walk you through the differences between our internet-only and bundle plans.",
+    spoken:  "Happy to talk you through the difference between internet-only and a bundle.",
+    audio:   "audio/h3-5.mp3"
+  }
 ];
 
 const chat = document.getElementById('chat');
@@ -160,7 +329,10 @@ let replyIndex = 0;
 function addBubble(text, who) {
   const el = document.createElement('div');
   el.className = 'bubble ' + who;
-  el.textContent = text;
+  // escape first, then allow only **bold** — the cleanup is the sole source of it
+  el.innerHTML = text
+    .replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
   return el;
@@ -180,43 +352,537 @@ function note(bubble, text) {
   return el;
 }
 
-// every rung reports the same two numbers, so they stay comparable
-function report(bubble, rung, ttfa, total) {
-  const ms = n => n == null ? '—' : n < 1000 ? Math.round(n) + 'ms' : (n / 1000).toFixed(1) + 's';
-  note(bubble, `${rung} · ${ms(ttfa)} to audio · ${ms(total)} total`);
-  console.log(`[${rung}] first audio ${ms(ttfa)}, total ${ms(total)}`);
+const fmt = n => n == null ? '—' : n < 1000 ? Math.round(n) + 'ms' : (n / 1000).toFixed(1) + 's';
+
+// every rung reports the same numbers in the same place, so they stay comparable
+function report(bubble, rung, toAudio, total) {
+  note(bubble, `${rung} · ${fmt(toAudio)} to audio · ${fmt(total)} spoken`);
+  console.log(`[${rung}] to audio ${fmt(toAudio)}, spoken ${fmt(total)}`);
 }
 
 // --- output rungs -----------------------------------------------------
 
-function speak(text, bubble) {
+// which service backs each rung, and whether it runs here or on the server.
+// Loaded from config.json so swapping a service never touches this file.
+// Baked-in defaults so the page works with no server at all — this is what the
+// published build runs on. The local harness overrides them from config.json,
+// so there is still one codebase and not a separate deployed variant.
+const STANDALONE_RUNGS = {
+  h2: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 },
+  // clips rendered once locally and shipped as files, so the published build
+  // costs nothing to re-test however many times it is opened
+  h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'prerendered' },
+  h4: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 }
+};
+
+let rungs = STANDALONE_RUNGS;
+fetch('/config')
+  .then(r => r.json())
+  .then(cfg => { if (cfg.rungs) rungs = cfg.rungs; })
+  .catch(() => { /* no server — the standalone defaults already apply */ });
+
+function speak(reply, bubble) {
   const rung = outputRung.value;
   if (rung === 'h1') return;              // text only — the control condition
-  if (rung === 'h2') return robotReadBack(text, bubble);
+
+  // H4 is any voice speaking the conversational variant — the bubble is
+  // untouched, so the written reply is still on screen and still auditable
+  const text = rung === 'h4' ? reply.spoken : reply.written;
+
+  const backing = rungs[rung];
+  if (!backing) return robotReadBack(text, bubble, {});      // fallback: in-page
+  if (backing.where === 'unavailable') {
+    note(bubble, `${backing.label} · needs the local harness — no server in this build`);
+    return;
+  }
+  if (backing.where === 'prerendered') return prerendered(reply, bubble, backing);
+  if (backing.where === 'browser') return robotReadBack(text, bubble, backing);
+  return serverVoice(text, bubble, rung, backing);
 }
 
-// H2 — Web Speech API, no key, no network
-function robotReadBack(text, bubble) {
+// The voice list populates asynchronously, but iOS DROPS speak() unless it is
+// called inside the user gesture — and an await ends that gesture. So no
+// awaiting: prime the list at load and cache it as it arrives instead.
+let voiceList = [];
+function refreshVoices() {
+  if ('speechSynthesis' in window) voiceList = speechSynthesis.getVoices() || [];
+}
+if ('speechSynthesis' in window) {
+  refreshVoices();                                              // kicks off loading
+  speechSynthesis.addEventListener('voiceschanged', refreshVoices);
+}
+
+// the OS voices the browser exposes are the same ones `say` uses — pick by name
+function pickVoice(cfg) {
+  refreshVoices();
+  const voices = voiceList;
+  if (!voices.length || !cfg.voice) return null;
+  return voices.find(v => v.name === cfg.voice)
+      || voices.find(v => v.name.toLowerCase().startsWith(String(cfg.voice).toLowerCase()))
+      || voices.find(v => v.lang === cfg.lang)
+      || null;
+}
+
+// H3 with no server — plays a clip rendered once and committed alongside the
+// page. Stays synchronous from the click so iOS doesn't refuse to play it.
+function prerendered(reply, bubble, backing) {
+  if (!reply.audio) {
+    note(bubble, `${backing.label} · this reply isn't pre-rendered — no credits spent`);
+    return;
+  }
+
+  const t0 = performance.now();
+  const audio = new Audio(reply.audio);
+  audio.onplaying = () => note(bubble, `${backing.label} · ${fmt(performance.now() - t0)} to audio (pre-rendered)`);
+  audio.onerror   = () => note(bubble, `${backing.label} · clip missing`);
+  audio.play().catch(() => note(bubble, `${backing.label} · playback blocked — tap the page, then send again`));
+}
+
+// H3+ — server fetches the audio, page just plays it and times it
+async function serverVoice(text, bubble, rung, backing) {
+  note(bubble, `${backing.label} · fetching…`);
+  const t0 = performance.now();
+
+  let response;
+  try {
+    response = await fetch('/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, rung })
+    });
+  } catch (e) {
+    note(bubble, `${backing.label} · server unreachable`);
+    return;
+  }
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try { message = (await response.json()).error || message; } catch (e) {}
+    note(bubble, `${backing.label} · ${message}`);
+    return;
+  }
+
+  const cached = response.headers.get('X-Cache') === 'hit';
+  const url = URL.createObjectURL(await response.blob());
+  const audio = new Audio(url);
+
+  audio.onplaying = () => {
+    const toAudio = performance.now() - t0;
+    note(bubble, `${backing.label} · ${fmt(toAudio)} to audio${cached ? ' (cached)' : ''}`);
+  };
+  audio.onended = () => URL.revokeObjectURL(url);
+  audio.onerror = () => note(bubble, `${backing.label} · playback failed`);
+
+  try {
+    await audio.play();
+  } catch (e) {
+    note(bubble, `${backing.label} · autoplay blocked — click the page once`);
+  }
+}
+
+// H2 — the OS voice, spoken by the page. Same engine as `say`, no server.
+function robotReadBack(text, bubble, cfg) {
   if (!('speechSynthesis' in window)) {
     note(bubble, 'H2 · speechSynthesis unavailable in this browser');
     return;
   }
 
+  const label = cfg.label || 'H2';
   note(bubble, 'speaking…');
   const t0 = performance.now();
-  let ttfa = null;
+  let toAudio = null;
 
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.onstart = () => { ttfa = performance.now() - t0; };
-  utterance.onend   = () => report(bubble, 'H2', ttfa, performance.now() - t0);
-  utterance.onerror = e => note(bubble, `H2 · failed (${e.error || 'unknown'})`);
+  const voice = pickVoice(cfg);
+  if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+  if (cfg.rate) utterance.rate = cfg.rate;
+
+  const named = voice ? `${label} (${voice.name})` : `${label} (system default)`;
+  utterance.onstart = () => { toAudio = performance.now() - t0; };
+  utterance.onend   = () => report(bubble, named, toAudio, performance.now() - t0);
+  utterance.onerror = e => note(bubble, `${label} · failed (${e.error || 'unknown'})`);
   speechSynthesis.speak(utterance);
 }
 
-// switching rung mid-utterance shouldn't leave the old one talking
-outputRung.addEventListener('change', () => {
+// what a full run of the script costs on a given rung, so the warning is real
+function runCost(rung) {
+  return REPLIES.reduce((n, r) => n + (rung === 'h4' ? r.spoken : r.written).length, 0);
+}
+
+// built in the page rather than confirm() — embedded browsers suppress native
+// dialogs, and a suppressed confirm() reads as "cancel", silently blocking the rung
+function askMetered(rung, backing) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+
+    const title = document.createElement('h2');
+    title.textContent = `${rung.toUpperCase()} uses ${backing.label}`;
+
+    const body = document.createElement('p');
+    body.textContent =
+      `This spends credits. A full run of all ${REPLIES.length} replies is `
+      + `${runCost(rung)} characters. Anything you have already heard is cached `
+      + `and costs nothing.`;
+
+    const cancel = document.createElement('button');
+    cancel.className = 'ghost';
+    cancel.textContent = 'Cancel';
+
+    const go = document.createElement('button');
+    go.className = 'primary';
+    go.textContent = 'Use credits';
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    actions.append(cancel, go);
+
+    const card = document.createElement('div');
+    card.className = 'modal';
+    card.append(title, body, actions);
+    wrap.append(card);
+
+    const close = answer => {
+      document.removeEventListener('keydown', onKey);
+      wrap.remove();
+      resolve(answer);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') close(false);
+      if (e.key === 'Enter')  close(true);
+    };
+
+    cancel.onclick = () => close(false);
+    go.onclick     = () => close(true);
+    wrap.onclick   = e => { if (e.target === wrap) close(false); };
+    document.addEventListener('keydown', onKey);
+
+    document.querySelector('.app').append(wrap);
+    go.focus();
+  });
+}
+
+let lastRung = outputRung.value;
+
+outputRung.addEventListener('change', async () => {
+  // switching rung mid-utterance shouldn't leave the old one talking
   if ('speechSynthesis' in window) speechSynthesis.cancel();
+  document.querySelectorAll('audio').forEach(a => a.pause());
+
+  updateBanner();
+
+  const rung = outputRung.value;
+  const backing = rungs[rung];
+
+  // paid services ask first — cheap to dismiss, expensive to select by accident
+  if (backing && backing.metered) {
+    const ok = await askMetered(rung, backing);
+    if (!ok) { outputRung.value = lastRung; return; }
+  }
+
+  lastRung = rung;
 });
+
+// --- what each rung is really doing -----------------------------------
+// One short line, plain English, honest about the shortcuts. Shown to whoever
+// is watching the demo, so it must never oversell what is behind a rung.
+const RUNG_NOTES = {
+  u3: 'Hard-coded for now. It won’t correct typos or misheard words.',
+};
+
+// something to say out loud, or tap, when demoing a rung. Kept behind a
+// disclosure so the banner stays one line until it is wanted.
+const DEMO_PHRASES = {
+  u3: "Sorry to bother you, I was just wondering if I could upgrade my broadband to the five hundred meg package, because at the moment it's basically fifty pounds a month and it's not really working properly. And also, can you get an engineer out to look at the router, if that makes sense? Thanks."
+};
+
+const banner = document.getElementById('banner');
+
+function updateBanner() {
+  const selected = [inputRung.value, outputRung.value];
+  const lines = selected.map(rung => RUNG_NOTES[rung]).filter(Boolean);
+  const phraseRung = selected.find(rung => DEMO_PHRASES[rung]);
+
+  banner.hidden = !lines.length && !phraseRung;
+  banner.innerHTML = '';
+
+  lines.forEach(line => {
+    const el = document.createElement('span');
+    el.textContent = line;
+    banner.append(el);
+  });
+
+  if (!phraseRung) return;
+
+  // tapping the phrase runs the rung on it, so the change is demonstrable
+  // without needing to dictate — useful where the mic is unavailable
+  const phrase = document.createElement('button');
+  phrase.className = 'demo';
+  phrase.type = 'button';
+  phrase.hidden = true;
+  phrase.textContent = DEMO_PHRASES[phraseRung];
+  phrase.addEventListener('click', () => {
+    input.value = DEMO_PHRASES[phraseRung];
+    if (inputRung.value === 'u3') cleanupPass(DEMO_PHRASES[phraseRung]);
+    input.focus();
+  });
+
+  // a toggle rather than <details>, so the label stays on the banner's own line
+  const toggle = document.createElement('button');
+  toggle.className = 'toggle';
+  toggle.type = 'button';
+  toggle.textContent = 'Example';
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.addEventListener('click', () => {
+    phrase.hidden = !phrase.hidden;
+    toggle.setAttribute('aria-expanded', String(!phrase.hidden));
+  });
+
+  banner.append(toggle, phrase);
+}
+
+// --- U2: our button, the device's own speech engine --------------------
+
+const mic = document.getElementById('mic');
+const inputRung = document.getElementById('inputRung');
+const rungNote = document.getElementById('rungNote');
+
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+const ctorName = window.SpeechRecognition ? 'SpeechRecognition'
+               : window.webkitSpeechRecognition ? 'webkitSpeechRecognition' : 'none';
+
+// the support record this rung exists to produce
+const support = { constructor: ctorName, secure: window.isSecureContext, errors: [], endedItself: null, gotTranscript: false };
+
+function tell(text, tone) {
+  rungNote.hidden = !text;
+  rungNote.textContent = text || '';
+  if (tone) rungNote.setAttribute('data-tone', tone); else rungNote.removeAttribute('data-tone');
+}
+
+// distinct states, deliberately not lumped together
+const STT_ERRORS = {
+  'not-allowed':            'Mic blocked — allow it in Settings → Safari → Microphone, then reload',
+  'service-not-allowed':    'Speech service refused — usually the same as a blocked mic',
+  'no-speech':              'Nothing heard — tap the mic and speak',
+  'audio-capture':          'No microphone found on this device',
+  'network':                'This browser sends speech away to be recognised, and the network failed',
+  'language-not-supported': 'en-GB not supported by this device’s speech engine'
+};
+
+let recognition = null, listening = false, baseText = '';
+
+function setListening(on) {
+  listening = on;
+  // colour carries the state — swapping the icon would lose the mic affordance
+  mic.dataset.state = on ? 'listening' : 'idle';
+  mic.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+}
+
+function showInputRung() {
+  updateBanner();
+  // U3 is U2 plus a tidy-up, so both rungs need the mic
+  const needsMic = inputRung.value === 'u2' || inputRung.value === 'u3';
+  mic.hidden = !needsMic;
+  document.getElementById('field').dataset.mic = needsMic ? 'on' : 'off';
+  if (!needsMic) { if (listening) recognition && recognition.stop(); return tell(''); }
+  if (!Recognition) { mic.disabled = true; return tell('No speech recognition in this browser — that is the result', 'error'); }
+  mic.disabled = false;
+  tell(inputRung.value === 'u3'
+    ? `Ready · ${ctorName} + cleanup · tap the mic and speak`
+    : `Ready · ${ctorName} · tap the mic and speak`);
+}
+
+// U3 — cleanup rules live here, in the page. No key, no server, so the rung
+// works on the published build and on a phone, which is where it needs judging.
+//
+// Tuned for a demo, not for correctness: the change has to be OBVIOUS. It cuts
+// harder than a shipping product should, and it cannot fix a misheard word —
+// only something that understands the sentence could do that.
+
+// stripped outright — order matters, longest phrases first
+const CLEANUP_CUTS = [
+  // filler
+  /\b(?:um+|uh+|er+m?|ah+|mmm+|hmm+)\b/gi,
+  // politeness and preamble
+  // longest first, or "hi there" matches "hi" and leaves "there" behind
+  /\b(?:hi there|hello there|hi|hello|hey)\b[,\s]*/gi,
+  /\b(?:sorry to bother you|sorry to trouble you|sorry)\b[,\s]*/gi,
+  /\b(?:please|thanks|thank you|cheers)\b/gi,
+  // circling before the point
+  /\b(?:i was just wondering if|i was wondering if|i just wanted to ask|i wanted to ask|i'?d like to know|i was hoping)\b/gi,
+  /\b(?:i mean|you know|sort of|kind of|like i say|as i say)\b/gi,
+  // trailing tags
+  /\b(?:or something|or whatever|or anything|if that makes sense|does that make sense|you know what i mean|if you know what i mean)\b/gi,
+  // intensifiers that carry nothing
+  /\b(?:basically|actually|obviously|literally|honestly|really|quite|just|very|so yeah|yeah so)\b/gi,
+];
+
+// rewritten to something shorter that means the same
+const CLEANUP_SWAPS = [
+  [/\bat the moment\b/gi, 'now'],
+  [/\bat this point in time\b/gi, 'now'],
+  [/\bin order to\b/gi, 'to'],
+  [/\bdue to the fact that\b/gi, 'because'],
+  [/\ba large number of\b/gi, 'many'],
+  [/\bwould like to\b/gi, 'want to'],
+  [/\b(?:is it possible|it is possible)(?: for me)? to\b/gi, 'can I'],
+  [/\bare you able to\b/gi, 'can you'],
+  [/\bi do not\b/gi, "I don't"],
+  [/\bi would\b/gi, "I'd"],
+  [/\bi am\b/gi, "I'm"],
+  [/\bi have\b/gi, "I've"],
+  [/\bwhat is\b/gi, "what's"],
+  [/\bcannot\b/gi, "can't"],
+  // dictation frequently drops apostrophes — put them back
+  [/\bwhats\b/gi, "what's"],   [/\bthats\b/gi, "that's"],
+  [/\bwheres\b/gi, "where's"], [/\bhows\b/gi, "how's"],
+  [/\bdont\b/gi, "don't"],     [/\bcant\b/gi, "can't"],
+  [/\bwont\b/gi, "won't"],     [/\bisnt\b/gi, "isn't"],
+  [/\barent\b/gi, "aren't"],   [/\bdoesnt\b/gi, "doesn't"],
+  [/\bdidnt\b/gi, "didn't"],   [/\bhavent\b/gi, "haven't"],
+  [/\bim\b/gi, "I'm"],         [/\bive\b/gi, "I've"],
+  // only where "its" is unambiguously "it is"
+  [/\bits (not|a|the|been|going|working|showing|saying)\b/gi, "it's $1"],
+  // a removed "I was just wondering if" leaves a limp "I could" — make it a request
+  [/^\s*i could\b/i, 'Can I'],
+  [/^\s*i can\b/i, 'Can I'],
+  // numbers read aloud
+  [/\bfive hundred\b/gi, '500'],
+  [/\bone hundred\b/gi, '100'],
+  [/\btwo hundred\b/gi, '200'],
+  [/\bone gig\b/gi, '1 Gbps'],
+  // money spoken aloud — rules are genuinely better than a model at this:
+  // deterministic, instant, and incapable of inventing a figure
+  [/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\s](one|two|three|four|five|six|seven|eight|nine)\b/gi,
+    (_, tens, units) => String(
+      { twenty:20, thirty:30, forty:40, fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 }[tens.toLowerCase()] +
+      { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9 }[units.toLowerCase()])],
+  [/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|eleven|twelve|fifteen|twenty)\b/gi,
+    m => String({ eleven:11, twelve:12, fifteen:15, twenty:20, thirty:30, forty:40,
+                  fifty:50, sixty:60, seventy:70, eighty:80, ninety:90 }[m.toLowerCase()])],
+  // "one" is left alone deliberately — it is usually a pronoun ("the 500 meg one")
+  [/\b(two|three|four|five|six|seven|eight|nine|ten)\b/gi,
+    m => ({ two:'2', three:'3', four:'4', five:'5',
+            six:'6', seven:'7', eight:'8', nine:'9', ten:'10' })[m.toLowerCase()]],
+  [/\b(\d+)\s*(?:pounds?|quid)\b/gi, '£$1'],
+  [/£(\d+)\s+(?:a|per|every)\s+month\b/gi, '£$1/month'],
+  [/£(\d+)\s+(?:a|per|every)\s+year\b/gi, '£$1/year'],
+  // the words this industry writes differently from how it says them
+  [/\bmegs?\b/gi, 'Mbps'],
+  [/\bmegabits? per second\b/gi, 'Mbps'],
+  [/\bgigs?\b/gi, 'Gbps'],
+  [/\bwi ?fi\b/gi, 'Wi-Fi'],
+  [/\bsim\b/gi, 'SIM'],
+  [/\bpay as you go\b/gi, 'PAYG'],
+  // last, because it needs the figures to exist already: "its fifty pounds"
+  // is only recognisable as "it's" once it reads "its £50"
+  [/\bits (?=[£\d])/gi, "it's "],
+];
+
+const QUESTION_OPENERS = /^(?:what|why|how|when|where|who|which|can|could|do|does|did|is|are|will|would|should|have|has)\b/i;
+
+// people stack several requests into one breath — these are where a new one starts
+const NEW_POINT = /\b(?:and also|also can you|another thing|one more thing|as well as that|oh and|and while you'?re at it|and can you also)\b/gi;
+
+// the words a sales conversation actually turns on
+const KEYWORDS = /\b(upgrade|downgrade|cancel|cancellation|renew|contract|bill|billing|refund|complaint|fault|faulty|engineer|router|broadband|package|plan|speed|address)\b/gi;
+
+function tidyLine(line) {
+  let text = line
+    .replace(/\b(\w+)(\s+\1\b)+/gi, '$1')       // stutters: "I I want" -> "I want"
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')             // no space before punctuation
+    .replace(/^[\s,.;:]+/, '')                   // leftover punctuation at the start
+    .replace(/\bi\b/g, 'I')                      // lone i
+    // removing a phrase can leave its punctuation orphaned: ", ?."
+    .replace(/\s*([,;:])\s*(?=[,;:.!?])/g, '')
+    .replace(/([.!?])[.!?]+/g, '$1')
+    .replace(/[\s,;:.!?]+$/, '')                 // strip it, then decide afresh
+    .trim();
+
+  if (!text) return text;
+  text = text[0].toUpperCase() + text.slice(1);
+  text += QUESTION_OPENERS.test(text) ? '?' : '.';
+  return text;
+}
+
+function tidy(raw) {
+  let text = raw;
+
+  CLEANUP_CUTS.forEach(pattern => { text = text.replace(pattern, ' '); });
+  // must collapse before the swaps: a cut leaves a double space, and a phrase
+  // pattern expecting single spaces then silently fails to match
+  text = text.replace(/\s+/g, ' ');
+  CLEANUP_SWAPS.forEach(([pattern, to]) => { text = text.replace(pattern, to); });
+
+  // one breath containing three requests becomes three readable points
+  text = text.replace(NEW_POINT, '\n');
+
+  text = text.split('\n').map(tidyLine).filter(Boolean).join('\n\n');
+
+  // marked up last, so the ** never confuses the punctuation rules above
+  return text.replace(KEYWORDS, '**$1**');
+}
+
+const words = s => (s.trim().match(/\S+/g) || []).length;
+
+function cleanupPass(raw) {
+  const cleaned = tidy(raw);
+  input.value = cleaned;
+
+  const before = words(raw), after = words(cleaned);
+  const cut = before ? Math.round((1 - after / before) * 100) : 0;
+  // the count is the demo: the shortening has to be visible, not just felt
+  tell(`${before} → ${after} words (${cut > 0 ? '−' + cut + '%' : 'no change'}) · raw: “${raw}”`);
+}
+inputRung.addEventListener('change', showInputRung);
+showInputRung();
+
+mic.addEventListener('pointerdown', () => { if (listening) support.endedItself = false; });
+
+mic.addEventListener('click', () => {
+  if (listening) { recognition && recognition.stop(); return; }   // explicit stop
+
+  recognition = new Recognition();
+  recognition.lang = 'en-GB';
+  recognition.maxAlternatives = 1;
+  recognition.interimResults = true;   // nice-to-have; throttled on WebKit
+  // NEVER continuous = true — on WebKit the mic never stops and no transcript arrives
+
+  baseText = input.value ? input.value.trim() + ' ' : '';
+  support.endedItself = null;
+
+  recognition.onstart  = () => { setListening(true); tell('Listening… tap again to stop', 'live'); };
+  recognition.onresult = e => {
+    let final = '', interim = '';
+    for (let i = 0; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
+    }
+    input.value = (baseText + final + interim).replace(/\s+/g, ' ').trim();
+    if (final) support.gotTranscript = true;
+  };
+  recognition.onerror  = e => {
+    const code = e.error || 'unknown';
+    if (!support.errors.includes(code)) support.errors.push(code);
+    tell(STT_ERRORS[code] || `Recognition failed (${code})`, 'error');
+  };
+  recognition.onend    = () => {
+    setListening(false);
+    if (support.endedItself === null) support.endedItself = true;
+    if (!support.gotTranscript) return;
+    if (inputRung.value === 'u3') return cleanupPass(input.value);
+    // never auto-send — STT gets things wrong, so the user confirms
+    tell(`Transcript is in the box — edit it, then send · ended itself: ${support.endedItself}`);
+  };
+
+  try { recognition.start(); }        // must be inside the gesture
+  catch (err) { tell('Could not start: ' + err.message, 'error'); }
+});
+
+// the support record, for reading off a phone
+window.supportRecord = () => JSON.stringify({ ...support, ua: navigator.userAgent }, null, 2);
 
 function send() {
   const text = input.value.trim();
@@ -225,12 +891,15 @@ function send() {
   addBubble(text, 'user');
 
   const reply = REPLIES[replyIndex++ % REPLIES.length];
-  const bubble = addBubble(reply, 'bot');
+  const bubble = addBubble(reply.written, 'bot');
   speak(reply, bubble);
 }
 
 document.getElementById('send').addEventListener('click', send);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+// it is a textarea now, so Enter must be claimed explicitly — shift-Enter still breaks
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
 </script>
 
 </body>
