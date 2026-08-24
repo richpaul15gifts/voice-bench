@@ -196,7 +196,8 @@
 const REPLIES = [
   {
     written: "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
-    spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?"
+    spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?",
+    audio:   "audio/h3-1.mp3"    // already paid for — see `audio` note below
   },
   {
     written: "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
@@ -212,7 +213,8 @@ const REPLIES = [
   },
   {
     written: "Happy to walk you through the differences between our internet-only and bundle plans.",
-    spoken:  "Happy to talk you through the difference between internet-only and a bundle."
+    spoken:  "Happy to talk you through the difference between internet-only and a bundle.",
+    audio:   "audio/h3-5.mp3"
   }
 ];
 
@@ -261,7 +263,9 @@ function report(bubble, rung, toAudio, total) {
 // so there is still one codebase and not a separate deployed variant.
 const STANDALONE_RUNGS = {
   h2: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 },
-  h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'unavailable' },
+  // clips rendered once locally and shipped as files, so the published build
+  // costs nothing to re-test however many times it is opened
+  h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'prerendered' },
   h4: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 }
 };
 
@@ -285,6 +289,7 @@ function speak(reply, bubble) {
     note(bubble, `${backing.label} · needs the local harness — no server in this build`);
     return;
   }
+  if (backing.where === 'prerendered') return prerendered(reply, bubble, backing);
   if (backing.where === 'browser') return robotReadBack(text, bubble, backing);
   return serverVoice(text, bubble, rung, backing);
 }
@@ -310,6 +315,21 @@ function pickVoice(cfg) {
       || voices.find(v => v.name.toLowerCase().startsWith(String(cfg.voice).toLowerCase()))
       || voices.find(v => v.lang === cfg.lang)
       || null;
+}
+
+// H3 with no server — plays a clip rendered once and committed alongside the
+// page. Stays synchronous from the click so iOS doesn't refuse to play it.
+function prerendered(reply, bubble, backing) {
+  if (!reply.audio) {
+    note(bubble, `${backing.label} · this reply isn't pre-rendered — no credits spent`);
+    return;
+  }
+
+  const t0 = performance.now();
+  const audio = new Audio(reply.audio);
+  audio.onplaying = () => note(bubble, `${backing.label} · ${fmt(performance.now() - t0)} to audio (pre-rendered)`);
+  audio.onerror   = () => note(bubble, `${backing.label} · clip missing`);
+  audio.play().catch(() => note(bubble, `${backing.label} · playback blocked — tap the page, then send again`));
 }
 
 // H3+ — server fetches the audio, page just plays it and times it
