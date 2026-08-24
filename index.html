@@ -18,7 +18,6 @@
 
   /* the widget — edge to edge on mobile, capped column on desktop */
   .app {
-    position: relative;   /* the credit warning is contained by the widget */
     width: 100%;
     max-width: 440px;
     display: flex;
@@ -49,50 +48,6 @@
     border-radius: 7px;
     padding: 5px 6px;
   }
-
-  /* credit warning — in-page, because embedded browsers suppress confirm() */
-  .modal-wrap {
-    position: absolute;
-    inset: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: rgba(0,0,0,.32);
-  }
-  .modal {
-    background: #fff;
-    border-radius: 14px;
-    padding: 20px;
-    box-shadow: 0 16px 48px rgba(0,0,0,.24);
-  }
-  .modal h2 {
-    margin: 0 0 8px;
-    font-size: 16px;
-    color: #111;
-  }
-  .modal p {
-    margin: 0 0 18px;
-    font-size: 13px;
-    line-height: 1.45;
-    color: #555;
-  }
-  .modal-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-  .modal-actions button {
-    border: 0;
-    border-radius: 8px;
-    padding: 9px 14px;
-    font-family: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .modal-actions .ghost   { background: #ececed; color: #333; }
-  .modal-actions .primary { background: #0b84ff; color: #fff; }
 
   /* chat area */
   #chat {
@@ -177,8 +132,8 @@
     <select id="outputRung" aria-label="Humara voice">
       <option value="h1" selected>H1 · Text only</option>
       <option value="h2">H2 · Robot read-back</option>
-      <option value="h3">H3 · Real voice read-back</option>
-      <option value="h4">H4 · Selective speech</option>
+      <option value="h3" disabled>H3 · Real voice read-back</option>
+      <option value="h4" disabled>H4 · Selective speech</option>
     </select>
   </div>
   <div id="chat"></div>
@@ -189,33 +144,12 @@
 </div>
 
 <script>
-// `written` is what the bubble shows and every rung but H4 speaks.
-// `spoken` is the same content said conversationally — H4 only. Nothing is
-// dropped: if a customer following by ear can't answer as well as one reading
-// the bubble, the rewrite has gone too far.
 const REPLIES = [
-  {
-    written: "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
-    spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?",
-    audio:   "audio/h3-1.mp3"    // already paid for — see `audio` note below
-  },
-  {
-    written: "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
-    spoken:  "From what you've said, our 500 meg plan looks like a good fit. Want me to check availability at your address?"
-  },
-  {
-    written: "I don't see any outstanding balance on this account — is there something specific you'd like me to look into?",
-    spoken:  "There's no outstanding balance on this account. Was there something specific you wanted me to look at?"
-  },
-  {
-    written: "I can get an appointment booked for a technician visit. What day works best for you?",
-    spoken:  "I can get a technician booked in. What day works best for you?"
-  },
-  {
-    written: "Happy to walk you through the differences between our internet-only and bundle plans.",
-    spoken:  "Happy to talk you through the difference between internet-only and a bundle.",
-    audio:   "audio/h3-5.mp3"
-  }
+  "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
+  "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
+  "I don't see any outstanding balance on this account — is there something specific you'd like me to look into?",
+  "I can get an appointment booked for a technician visit. What day works best for you?",
+  "Happy to walk you through the differences between our internet-only and bundle plans."
 ];
 
 const chat = document.getElementById('chat');
@@ -246,233 +180,42 @@ function note(bubble, text) {
   return el;
 }
 
-const fmt = n => n == null ? '—' : n < 1000 ? Math.round(n) + 'ms' : (n / 1000).toFixed(1) + 's';
-
-// every rung reports the same numbers in the same place, so they stay comparable
-function report(bubble, rung, toAudio, total) {
-  note(bubble, `${rung} · ${fmt(toAudio)} to audio · ${fmt(total)} spoken`);
-  console.log(`[${rung}] to audio ${fmt(toAudio)}, spoken ${fmt(total)}`);
+// every rung reports the same two numbers, so they stay comparable
+function report(bubble, rung, ttfa, total) {
+  const ms = n => n == null ? '—' : n < 1000 ? Math.round(n) + 'ms' : (n / 1000).toFixed(1) + 's';
+  note(bubble, `${rung} · ${ms(ttfa)} to audio · ${ms(total)} total`);
+  console.log(`[${rung}] first audio ${ms(ttfa)}, total ${ms(total)}`);
 }
 
 // --- output rungs -----------------------------------------------------
 
-// which service backs each rung, and whether it runs here or on the server.
-// Loaded from config.json so swapping a service never touches this file.
-// Baked-in defaults so the page works with no server at all — this is what the
-// published build runs on. The local harness overrides them from config.json,
-// so there is still one codebase and not a separate deployed variant.
-const STANDALONE_RUNGS = {
-  h2: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 },
-  // clips rendered once locally and shipped as files, so the published build
-  // costs nothing to re-test however many times it is opened
-  h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'prerendered' },
-  h4: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 }
-};
-
-let rungs = STANDALONE_RUNGS;
-fetch('/config')
-  .then(r => r.json())
-  .then(cfg => { if (cfg.rungs) rungs = cfg.rungs; })
-  .catch(() => { /* no server — the standalone defaults already apply */ });
-
-function speak(reply, bubble) {
+function speak(text, bubble) {
   const rung = outputRung.value;
   if (rung === 'h1') return;              // text only — the control condition
-
-  // H4 is any voice speaking the conversational variant — the bubble is
-  // untouched, so the written reply is still on screen and still auditable
-  const text = rung === 'h4' ? reply.spoken : reply.written;
-
-  const backing = rungs[rung];
-  if (!backing) return robotReadBack(text, bubble, {});      // fallback: in-page
-  if (backing.where === 'unavailable') {
-    note(bubble, `${backing.label} · needs the local harness — no server in this build`);
-    return;
-  }
-  if (backing.where === 'prerendered') return prerendered(reply, bubble, backing);
-  if (backing.where === 'browser') return robotReadBack(text, bubble, backing);
-  return serverVoice(text, bubble, rung, backing);
+  if (rung === 'h2') return robotReadBack(text, bubble);
 }
 
-// The voice list populates asynchronously, but iOS DROPS speak() unless it is
-// called inside the user gesture — and an await ends that gesture. So no
-// awaiting: prime the list at load and cache it as it arrives instead.
-let voiceList = [];
-function refreshVoices() {
-  if ('speechSynthesis' in window) voiceList = speechSynthesis.getVoices() || [];
-}
-if ('speechSynthesis' in window) {
-  refreshVoices();                                              // kicks off loading
-  speechSynthesis.addEventListener('voiceschanged', refreshVoices);
-}
-
-// the OS voices the browser exposes are the same ones `say` uses — pick by name
-function pickVoice(cfg) {
-  refreshVoices();
-  const voices = voiceList;
-  if (!voices.length || !cfg.voice) return null;
-  return voices.find(v => v.name === cfg.voice)
-      || voices.find(v => v.name.toLowerCase().startsWith(String(cfg.voice).toLowerCase()))
-      || voices.find(v => v.lang === cfg.lang)
-      || null;
-}
-
-// H3 with no server — plays a clip rendered once and committed alongside the
-// page. Stays synchronous from the click so iOS doesn't refuse to play it.
-function prerendered(reply, bubble, backing) {
-  if (!reply.audio) {
-    note(bubble, `${backing.label} · this reply isn't pre-rendered — no credits spent`);
-    return;
-  }
-
-  const t0 = performance.now();
-  const audio = new Audio(reply.audio);
-  audio.onplaying = () => note(bubble, `${backing.label} · ${fmt(performance.now() - t0)} to audio (pre-rendered)`);
-  audio.onerror   = () => note(bubble, `${backing.label} · clip missing`);
-  audio.play().catch(() => note(bubble, `${backing.label} · playback blocked — tap the page, then send again`));
-}
-
-// H3+ — server fetches the audio, page just plays it and times it
-async function serverVoice(text, bubble, rung, backing) {
-  note(bubble, `${backing.label} · fetching…`);
-  const t0 = performance.now();
-
-  let response;
-  try {
-    response = await fetch('/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, rung })
-    });
-  } catch (e) {
-    note(bubble, `${backing.label} · server unreachable`);
-    return;
-  }
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try { message = (await response.json()).error || message; } catch (e) {}
-    note(bubble, `${backing.label} · ${message}`);
-    return;
-  }
-
-  const cached = response.headers.get('X-Cache') === 'hit';
-  const url = URL.createObjectURL(await response.blob());
-  const audio = new Audio(url);
-
-  audio.onplaying = () => {
-    const toAudio = performance.now() - t0;
-    note(bubble, `${backing.label} · ${fmt(toAudio)} to audio${cached ? ' (cached)' : ''}`);
-  };
-  audio.onended = () => URL.revokeObjectURL(url);
-  audio.onerror = () => note(bubble, `${backing.label} · playback failed`);
-
-  try {
-    await audio.play();
-  } catch (e) {
-    note(bubble, `${backing.label} · autoplay blocked — click the page once`);
-  }
-}
-
-// H2 — the OS voice, spoken by the page. Same engine as `say`, no server.
-function robotReadBack(text, bubble, cfg) {
+// H2 — Web Speech API, no key, no network
+function robotReadBack(text, bubble) {
   if (!('speechSynthesis' in window)) {
     note(bubble, 'H2 · speechSynthesis unavailable in this browser');
     return;
   }
 
-  const label = cfg.label || 'H2';
   note(bubble, 'speaking…');
   const t0 = performance.now();
-  let toAudio = null;
+  let ttfa = null;
 
   const utterance = new SpeechSynthesisUtterance(text);
-  const voice = pickVoice(cfg);
-  if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
-  if (cfg.rate) utterance.rate = cfg.rate;
-
-  const named = voice ? `${label} (${voice.name})` : `${label} (system default)`;
-  utterance.onstart = () => { toAudio = performance.now() - t0; };
-  utterance.onend   = () => report(bubble, named, toAudio, performance.now() - t0);
-  utterance.onerror = e => note(bubble, `${label} · failed (${e.error || 'unknown'})`);
+  utterance.onstart = () => { ttfa = performance.now() - t0; };
+  utterance.onend   = () => report(bubble, 'H2', ttfa, performance.now() - t0);
+  utterance.onerror = e => note(bubble, `H2 · failed (${e.error || 'unknown'})`);
   speechSynthesis.speak(utterance);
 }
 
-// what a full run of the script costs on a given rung, so the warning is real
-function runCost(rung) {
-  return REPLIES.reduce((n, r) => n + (rung === 'h4' ? r.spoken : r.written).length, 0);
-}
-
-// built in the page rather than confirm() — embedded browsers suppress native
-// dialogs, and a suppressed confirm() reads as "cancel", silently blocking the rung
-function askMetered(rung, backing) {
-  return new Promise(resolve => {
-    const wrap = document.createElement('div');
-    wrap.className = 'modal-wrap';
-
-    const title = document.createElement('h2');
-    title.textContent = `${rung.toUpperCase()} uses ${backing.label}`;
-
-    const body = document.createElement('p');
-    body.textContent =
-      `This spends credits. A full run of all ${REPLIES.length} replies is `
-      + `${runCost(rung)} characters. Anything you have already heard is cached `
-      + `and costs nothing.`;
-
-    const cancel = document.createElement('button');
-    cancel.className = 'ghost';
-    cancel.textContent = 'Cancel';
-
-    const go = document.createElement('button');
-    go.className = 'primary';
-    go.textContent = 'Use credits';
-
-    const actions = document.createElement('div');
-    actions.className = 'modal-actions';
-    actions.append(cancel, go);
-
-    const card = document.createElement('div');
-    card.className = 'modal';
-    card.append(title, body, actions);
-    wrap.append(card);
-
-    const close = answer => {
-      document.removeEventListener('keydown', onKey);
-      wrap.remove();
-      resolve(answer);
-    };
-    const onKey = e => {
-      if (e.key === 'Escape') close(false);
-      if (e.key === 'Enter')  close(true);
-    };
-
-    cancel.onclick = () => close(false);
-    go.onclick     = () => close(true);
-    wrap.onclick   = e => { if (e.target === wrap) close(false); };
-    document.addEventListener('keydown', onKey);
-
-    document.querySelector('.app').append(wrap);
-    go.focus();
-  });
-}
-
-let lastRung = outputRung.value;
-
-outputRung.addEventListener('change', async () => {
-  // switching rung mid-utterance shouldn't leave the old one talking
+// switching rung mid-utterance shouldn't leave the old one talking
+outputRung.addEventListener('change', () => {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
-  document.querySelectorAll('audio').forEach(a => a.pause());
-
-  const rung = outputRung.value;
-  const backing = rungs[rung];
-
-  // paid services ask first — cheap to dismiss, expensive to select by accident
-  if (backing && backing.metered) {
-    const ok = await askMetered(rung, backing);
-    if (!ok) { outputRung.value = lastRung; return; }
-  }
-
-  lastRung = rung;
 });
 
 function send() {
@@ -482,7 +225,7 @@ function send() {
   addBubble(text, 'user');
 
   const reply = REPLIES[replyIndex++ % REPLIES.length];
-  const bubble = addBubble(reply.written, 'bot');
+  const bubble = addBubble(reply, 'bot');
   speak(reply, bubble);
 }
 
