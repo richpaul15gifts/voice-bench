@@ -326,6 +326,15 @@ const input = document.getElementById('input');
 const outputRung = document.getElementById('outputRung');
 let replyIndex = 0;
 
+// the field grows with the text instead of scrolling internally — capped by
+// the max-height already set in CSS, which is what stops it running away
+function growInput() {
+  input.style.height = 'auto';
+  input.style.height = input.scrollHeight + 'px';
+}
+input.addEventListener('input', growInput);
+growInput();
+
 function addBubble(text, who) {
   const el = document.createElement('div');
   el.className = 'bubble ' + who;
@@ -623,6 +632,7 @@ function updateBanner() {
   phrase.textContent = DEMO_PHRASES[phraseRung];
   phrase.addEventListener('click', () => {
     input.value = DEMO_PHRASES[phraseRung];
+    growInput();   // setting .value doesn't fire 'input', so this won't resize on its own
     if (inputRung.value === 'u3') cleanupPass(DEMO_PHRASES[phraseRung]);
     input.focus();
   });
@@ -785,8 +795,32 @@ const QUESTION_OPENERS = /^(?:what|why|how|when|where|who|which|can|could|do|doe
 // people stack several requests into one breath — these are where a new one starts
 const NEW_POINT = /\b(?:and also|also can you|another thing|one more thing|as well as that|oh and|and while you'?re at it|and can you also)\b/gi;
 
-// the words a sales conversation actually turns on
-const KEYWORDS = /\b(upgrade|downgrade|cancel|cancellation|renew|contract|bill|billing|refund|complaint|fault|faulty|engineer|router|broadband|package|plan|speed|address)\b/gi;
+// Bold whole phrases where one exists — "upgrade my broadband to the 500 Mbps
+// package" reads as a decision; "upgrade", "broadband" and "package" bolded
+// separately read as three unrelated words. Checked first, longest match wins.
+// [^\n.?!] keeps a span from crossing into the next sentence or paragraph.
+const KEYWORD_PHRASES = [
+  /\b(?:upgrade|downgrade)\b[^\n.?!]*?\b(?:package|plan)\b/gi,
+  /\bcancel(?:lation)?\b[^\n.?!]*?\bcontract\b/gi,
+  /\b(?:get (?:an|the) )?engineer\b[^\n.?!]*?\brouter\b/gi,
+  /\bbill\b[^\n.?!]*?\bwrong\b/gi,
+];
+
+// fallback for when no phrase matches — a lone word still beats nothing
+const KEYWORD_WORDS = /\b(upgrade|downgrade|cancel|cancellation|renew|contract|bill|billing|refund|complaint|fault|faulty|engineer|router|broadband|package|plan|speed|address)\b/gi;
+
+function boldKeywords(text) {
+  let out = text;
+  KEYWORD_PHRASES.forEach(pattern => { out = out.replace(pattern, m => `**${m}**`); });
+  // skip words already inside a bolded span from the phrase pass above —
+  // an odd number of ** before this point means we're inside one
+  out = out.replace(KEYWORD_WORDS, (match, _group, offset, whole) => {
+    const before = whole.slice(0, offset);
+    const insideBoldSpan = (before.match(/\*\*/g) || []).length % 2 === 1;
+    return insideBoldSpan ? match : `**${match}**`;
+  });
+  return out;
+}
 
 function tidyLine(line) {
   let text = line
@@ -822,7 +856,7 @@ function tidy(raw) {
   text = text.split('\n').map(tidyLine).filter(Boolean).join('\n\n');
 
   // marked up last, so the ** never confuses the punctuation rules above
-  return text.replace(KEYWORDS, '**$1**');
+  return boldKeywords(text);
 }
 
 const words = s => (s.trim().match(/\S+/g) || []).length;
@@ -830,6 +864,7 @@ const words = s => (s.trim().match(/\S+/g) || []).length;
 function cleanupPass(raw) {
   const cleaned = tidy(raw);
   input.value = cleaned;
+  growInput();   // the cleaned text is often several lines — resize for it
 
   const before = words(raw), after = words(cleaned);
   const cut = before ? Math.round((1 - after / before) * 100) : 0;
@@ -861,6 +896,7 @@ mic.addEventListener('click', () => {
       if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
     }
     input.value = (baseText + final + interim).replace(/\s+/g, ' ').trim();
+    growInput();
     if (final) support.gotTranscript = true;
   };
   recognition.onerror  = e => {
@@ -888,6 +924,7 @@ function send() {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  growInput();   // shrink back to one line once the message is sent
   addBubble(text, 'user');
 
   const reply = REPLIES[replyIndex++ % REPLIES.length];
