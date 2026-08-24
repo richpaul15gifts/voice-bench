@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chat Prototype</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    height: 100dvh;
+    display: flex;
+    justify-content: center;
+    background: #e8e8ea;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* the widget — edge to edge on mobile, capped column on desktop */
+  .app {
+    position: relative;   /* the credit warning is contained by the widget */
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    overflow: hidden;
+  }
+  @media (min-width: 460px) {
+    .app { box-shadow: 0 0 0 1px rgba(0,0,0,.07), 0 12px 40px rgba(0,0,0,.10); }
+  }
+
+  /* bench controls — inert for now */
+  .bench-bar {
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #f7f7f8;
+    border-bottom: 1px solid #e5e5e7;
+  }
+  .bench-bar select {
+    flex: 1;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 11px;
+    color: #3a3a3c;
+    background: #fff;
+    border: 1px solid #d6d6d8;
+    border-radius: 7px;
+    padding: 5px 6px;
+  }
+
+  /* credit warning — in-page, because embedded browsers suppress confirm() */
+  .modal-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0,0,0,.32);
+  }
+  .modal {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.24);
+  }
+  .modal h2 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: #111;
+  }
+  .modal p {
+    margin: 0 0 18px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #555;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .modal-actions button {
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modal-actions .ghost   { background: #ececed; color: #333; }
+  .modal-actions .primary { background: #0b84ff; color: #fff; }
+
+  /* chat area */
+  #chat {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .bubble {
+    max-width: 78%;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .user {
+    align-self: flex-end;
+    background: #0b84ff;
+    color: #fff;
+    border-bottom-right-radius: 5px;
+  }
+  .bot {
+    align-self: flex-start;
+    background: #ececed;
+    color: #111;
+    border-bottom-left-radius: 5px;
+  }
+  .note {
+    display: block;
+    margin-top: 5px;
+    font-size: 11px;
+    color: #777;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* composer */
+  .composer {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid #e5e5e7;
+    background: #fff;
+  }
+  #input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid #d6d6d8;
+    border-radius: 20px;
+    padding: 10px 14px;
+    font-size: 16px;
+    outline: none;
+    font-family: inherit;
+  }
+  #input:focus { border-color: #0b84ff; }
+  #send {
+    flex-shrink: 0;
+    border: 0;
+    background: #0b84ff;
+    color: #fff;
+    border-radius: 20px;
+    padding: 0 18px;
+    font-size: 15px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="bench-bar">
+    <select id="inputRung" aria-label="User voice">
+      <option value="u1" selected>U1 · Native dictation</option>
+      <option value="u2" disabled>U2 · Our own mic UI</option>
+      <option value="u3" disabled>U3 · Cleanup pass</option>
+      <option value="u4" disabled>U4 · Speech to text (mic permission needed)</option>
+    </select>
+    <select id="outputRung" aria-label="Humara voice">
+      <option value="h1" selected>H1 · Text only</option>
+      <option value="h2">H2 · Robot read-back</option>
+      <option value="h3">H3 · Real voice read-back</option>
+      <option value="h4">H4 · Selective speech</option>
+    </select>
+  </div>
+  <div id="chat"></div>
+  <div class="composer">
+    <input id="input" type="text" placeholder="Message" autocomplete="off">
+    <button id="send">Send</button>
+  </div>
+</div>
+
+<script>
+// `written` is what the bubble shows and every rung but H4 speaks.
+// `spoken` is the same content said conversationally — H4 only. Nothing is
+// dropped: if a customer following by ear can't answer as well as one reading
+// the bubble, the rewrite has gone too far.
+const REPLIES = [
+  {
+    written: "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
+    spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?"
+  },
+  {
+    written: "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
+    spoken:  "From what you've said, our 500 meg plan looks like a good fit. Want me to check availability at your address?"
+  },
+  {
+    written: "I don't see any outstanding balance on this account — is there something specific you'd like me to look into?",
+    spoken:  "There's no outstanding balance on this account. Was there something specific you wanted me to look at?"
+  },
+  {
+    written: "I can get an appointment booked for a technician visit. What day works best for you?",
+    spoken:  "I can get a technician booked in. What day works best for you?"
+  },
+  {
+    written: "Happy to walk you through the differences between our internet-only and bundle plans.",
+    spoken:  "Happy to talk you through the difference between internet-only and a bundle."
+  }
+];
+
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const outputRung = document.getElementById('outputRung');
+let replyIndex = 0;
+
+function addBubble(text, who) {
+  const el = document.createElement('div');
+  el.className = 'bubble ' + who;
+  el.textContent = text;
+  chat.appendChild(el);
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+// --- bench plumbing ---------------------------------------------------
+
+function note(bubble, text) {
+  let el = bubble.querySelector('.note');
+  if (!el) {
+    el = document.createElement('span');
+    el.className = 'note';
+    bubble.appendChild(el);
+  }
+  el.textContent = text;
+  chat.scrollTop = chat.scrollHeight;
+  return el;
+}
+
+const fmt = n => n == null ? '—' : n < 1000 ? Math.round(n) + 'ms' : (n / 1000).toFixed(1) + 's';
+
+// every rung reports the same numbers in the same place, so they stay comparable
+function report(bubble, rung, toAudio, total) {
+  note(bubble, `${rung} · ${fmt(toAudio)} to audio · ${fmt(total)} spoken`);
+  console.log(`[${rung}] to audio ${fmt(toAudio)}, spoken ${fmt(total)}`);
+}
+
+// --- output rungs -----------------------------------------------------
+
+// which service backs each rung, and whether it runs here or on the server.
+// Loaded from config.json so swapping a service never touches this file.
+// Baked-in defaults so the page works with no server at all — this is what the
+// published build runs on. The local harness overrides them from config.json,
+// so there is still one codebase and not a separate deployed variant.
+const STANDALONE_RUNGS = {
+  h2: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 },
+  h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'unavailable' },
+  h4: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 }
+};
+
+let rungs = STANDALONE_RUNGS;
+fetch('/config')
+  .then(r => r.json())
+  .then(cfg => { if (cfg.rungs) rungs = cfg.rungs; })
+  .catch(() => { /* no server — the standalone defaults already apply */ });
+
+function speak(reply, bubble) {
+  const rung = outputRung.value;
+  if (rung === 'h1') return;              // text only — the control condition
+
+  // H4 is any voice speaking the conversational variant — the bubble is
+  // untouched, so the written reply is still on screen and still auditable
+  const text = rung === 'h4' ? reply.spoken : reply.written;
+
+  const backing = rungs[rung];
+  if (!backing) return robotReadBack(text, bubble, {});      // fallback: in-page
+  if (backing.where === 'unavailable') {
+    note(bubble, `${backing.label} · needs the local harness — no server in this build`);
+    return;
+  }
+  if (backing.where === 'browser') return robotReadBack(text, bubble, backing);
+  return serverVoice(text, bubble, rung, backing);
+}
+
+// The voice list populates asynchronously, but iOS DROPS speak() unless it is
+// called inside the user gesture — and an await ends that gesture. So no
+// awaiting: prime the list at load and cache it as it arrives instead.
+let voiceList = [];
+function refreshVoices() {
+  if ('speechSynthesis' in window) voiceList = speechSynthesis.getVoices() || [];
+}
+if ('speechSynthesis' in window) {
+  refreshVoices();                                              // kicks off loading
+  speechSynthesis.addEventListener('voiceschanged', refreshVoices);
+}
+
+// the OS voices the browser exposes are the same ones `say` uses — pick by name
+function pickVoice(cfg) {
+  refreshVoices();
+  const voices = voiceList;
+  if (!voices.length || !cfg.voice) return null;
+  return voices.find(v => v.name === cfg.voice)
+      || voices.find(v => v.name.toLowerCase().startsWith(String(cfg.voice).toLowerCase()))
+      || voices.find(v => v.lang === cfg.lang)
+      || null;
+}
+
+// H3+ — server fetches the audio, page just plays it and times it
+async function serverVoice(text, bubble, rung, backing) {
+  note(bubble, `${backing.label} · fetching…`);
+  const t0 = performance.now();
+
+  let response;
+  try {
+    response = await fetch('/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, rung })
+    });
+  } catch (e) {
+    note(bubble, `${backing.label} · server unreachable`);
+    return;
+  }
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try { message = (await response.json()).error || message; } catch (e) {}
+    note(bubble, `${backing.label} · ${message}`);
+    return;
+  }
+
+  const cached = response.headers.get('X-Cache') === 'hit';
+  const url = URL.createObjectURL(await response.blob());
+  const audio = new Audio(url);
+
+  audio.onplaying = () => {
+    const toAudio = performance.now() - t0;
+    note(bubble, `${backing.label} · ${fmt(toAudio)} to audio${cached ? ' (cached)' : ''}`);
+  };
+  audio.onended = () => URL.revokeObjectURL(url);
+  audio.onerror = () => note(bubble, `${backing.label} · playback failed`);
+
+  try {
+    await audio.play();
+  } catch (e) {
+    note(bubble, `${backing.label} · autoplay blocked — click the page once`);
+  }
+}
+
+// H2 — the OS voice, spoken by the page. Same engine as `say`, no server.
+function robotReadBack(text, bubble, cfg) {
+  if (!('speechSynthesis' in window)) {
+    note(bubble, 'H2 · speechSynthesis unavailable in this browser');
+    return;
+  }
+
+  const label = cfg.label || 'H2';
+  note(bubble, 'speaking…');
+  const t0 = performance.now();
+  let toAudio = null;
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  const voice = pickVoice(cfg);
+  if (voice) { utterance.voice = voice; utterance.lang = voice.lang; }
+  if (cfg.rate) utterance.rate = cfg.rate;
+
+  const named = voice ? `${label} (${voice.name})` : `${label} (system default)`;
+  utterance.onstart = () => { toAudio = performance.now() - t0; };
+  utterance.onend   = () => report(bubble, named, toAudio, performance.now() - t0);
+  utterance.onerror = e => note(bubble, `${label} · failed (${e.error || 'unknown'})`);
+  speechSynthesis.speak(utterance);
+}
+
+// what a full run of the script costs on a given rung, so the warning is real
+function runCost(rung) {
+  return REPLIES.reduce((n, r) => n + (rung === 'h4' ? r.spoken : r.written).length, 0);
+}
+
+// built in the page rather than confirm() — embedded browsers suppress native
+// dialogs, and a suppressed confirm() reads as "cancel", silently blocking the rung
+function askMetered(rung, backing) {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-wrap';
+
+    const title = document.createElement('h2');
+    title.textContent = `${rung.toUpperCase()} uses ${backing.label}`;
+
+    const body = document.createElement('p');
+    body.textContent =
+      `This spends credits. A full run of all ${REPLIES.length} replies is `
+      + `${runCost(rung)} characters. Anything you have already heard is cached `
+      + `and costs nothing.`;
+
+    const cancel = document.createElement('button');
+    cancel.className = 'ghost';
+    cancel.textContent = 'Cancel';
+
+    const go = document.createElement('button');
+    go.className = 'primary';
+    go.textContent = 'Use credits';
+
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    actions.append(cancel, go);
+
+    const card = document.createElement('div');
+    card.className = 'modal';
+    card.append(title, body, actions);
+    wrap.append(card);
+
+    const close = answer => {
+      document.removeEventListener('keydown', onKey);
+      wrap.remove();
+      resolve(answer);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') close(false);
+      if (e.key === 'Enter')  close(true);
+    };
+
+    cancel.onclick = () => close(false);
+    go.onclick     = () => close(true);
+    wrap.onclick   = e => { if (e.target === wrap) close(false); };
+    document.addEventListener('keydown', onKey);
+
+    document.querySelector('.app').append(wrap);
+    go.focus();
+  });
+}
+
+let lastRung = outputRung.value;
+
+outputRung.addEventListener('change', async () => {
+  // switching rung mid-utterance shouldn't leave the old one talking
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  document.querySelectorAll('audio').forEach(a => a.pause());
+
+  const rung = outputRung.value;
+  const backing = rungs[rung];
+
+  // paid services ask first — cheap to dismiss, expensive to select by accident
+  if (backing && backing.metered) {
+    const ok = await askMetered(rung, backing);
+    if (!ok) { outputRung.value = lastRung; return; }
+  }
+
+  lastRung = rung;
+});
+
+function send() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addBubble(text, 'user');
+
+  const reply = REPLIES[replyIndex++ % REPLIES.length];
+  const bubble = addBubble(reply.written, 'bot');
+  speak(reply, bubble);
+}
+
+document.getElementById('send').addEventListener('click', send);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+</script>
+
+</body>
+</html>
