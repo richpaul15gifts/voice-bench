@@ -446,6 +446,37 @@ function pickVoice(cfg) {
       || null;
 }
 
+// ONE audio element, unlocked by the first tap anywhere on the page.
+//
+// iOS refuses play() on a fresh element whose file hasn't loaded yet, even
+// inside a genuine tap — and it also refuses any play() that happens after an
+// await, which loses the gesture. Both broke playback on the phone. Playing a
+// silent clip on this element during a real gesture marks it as allowed, and
+// from then on swapping its src and playing works regardless.
+const player = new Audio();
+let playerUnlocked = false;
+
+function unlockPlayer() {
+  if (playerUnlocked) return;
+  playerUnlocked = true;
+  // one silent sample — inaudible, but it is a real play() inside a real gesture
+  player.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+  player.play().catch(() => { playerUnlocked = false; });
+}
+document.addEventListener('pointerdown', unlockPlayer);
+document.addEventListener('keydown', unlockPlayer);
+
+// every rung plays through here, so the unlock only has to be solved once
+function playUrl(url, bubble, label, suffix, onDone) {
+  const t0 = performance.now();
+  player.pause();
+  player.src = url;
+  player.onplaying = () => note(bubble, `${label} · ${fmt(performance.now() - t0)} to audio${suffix || ''}`);
+  player.onerror   = () => note(bubble, `${label} · clip could not be played`);
+  player.onended   = () => { if (onDone) onDone(); };
+  player.play().catch(() => note(bubble, `${label} · playback blocked — tap the page, then send again`));
+}
+
 // H3 with no server — plays a clip rendered once and committed alongside the
 // page. Stays synchronous from the click so iOS doesn't refuse to play it.
 function prerendered(reply, bubble, backing, rung) {
@@ -456,11 +487,7 @@ function prerendered(reply, bubble, backing, rung) {
     return;
   }
 
-  const t0 = performance.now();
-  const audio = new Audio(src);
-  audio.onplaying = () => note(bubble, `${backing.label} · ${fmt(performance.now() - t0)} to audio (pre-rendered)`);
-  audio.onerror   = () => note(bubble, `${backing.label} · clip missing`);
-  audio.play().catch(() => note(bubble, `${backing.label} · playback blocked — tap the page, then send again`));
+  playUrl(src, bubble, backing.label, ' (pre-rendered)');
 }
 
 // H3+ — server fetches the audio, page just plays it and times it
@@ -489,20 +516,10 @@ async function serverVoice(text, bubble, rung, backing) {
 
   const cached = response.headers.get('X-Cache') === 'hit';
   const url = URL.createObjectURL(await response.blob());
-  const audio = new Audio(url);
 
-  audio.onplaying = () => {
-    const toAudio = performance.now() - t0;
-    note(bubble, `${backing.label} · ${fmt(toAudio)} to audio${cached ? ' (cached)' : ''}`);
-  };
-  audio.onended = () => URL.revokeObjectURL(url);
-  audio.onerror = () => note(bubble, `${backing.label} · playback failed`);
-
-  try {
-    await audio.play();
-  } catch (e) {
-    note(bubble, `${backing.label} · autoplay blocked — click the page once`);
-  }
+  // the await above has already lost the gesture, which is exactly why this
+  // goes through the unlocked element rather than a fresh one
+  playUrl(url, bubble, backing.label, cached ? ' (cached)' : '', () => URL.revokeObjectURL(url));
 }
 
 // H2 — the OS voice, spoken by the page. Same engine as `say`, no server.
@@ -592,7 +609,7 @@ let lastRung = outputRung.value;
 outputRung.addEventListener('change', async () => {
   // switching rung mid-utterance shouldn't leave the old one talking
   if ('speechSynthesis' in window) speechSynthesis.cancel();
-  document.querySelectorAll('audio').forEach(a => a.pause());
+  player.pause();   // not in the DOM, so querySelectorAll would miss it
 
   updateBanner();
 
