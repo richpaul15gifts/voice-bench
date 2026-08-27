@@ -123,6 +123,7 @@
     text-decoration: underline;
     cursor: pointer;
   }
+  .banner p.demo { cursor: default; }
   .banner .demo {
     flex: 1 0 100%;
     margin-top: 4px;
@@ -157,14 +158,14 @@
   }
   .user {
     align-self: flex-end;
-    background: #0b84ff;
-    color: #fff;
+    background: #ececed;
+    color: #111;
     border-bottom-right-radius: 5px;
   }
   .bot {
     align-self: flex-start;
-    background: #ececed;
-    color: #111;
+    background: #0b84ff;
+    color: #fff;
     border-bottom-left-radius: 5px;
   }
   .note {
@@ -174,6 +175,9 @@
     color: #777;
     font-variant-numeric: tabular-nums;
   }
+  /* the note sits on the blue Humara bubble, where #777 is unreadable —
+     dimmed white keeps it secondary to the reply without disappearing */
+  .bot .note { color: rgba(255, 255, 255, .78); }
 
   /* composer */
   .composer {
@@ -266,9 +270,9 @@
   <div class="bench-bar">
     <select id="inputRung" aria-label="User voice">
       <option value="u1" selected>User 1 – Native dictation</option>
-      <option value="u2">User 2 – Our own mic UI</option>
-      <option value="u3">User 3 – Cleanup pass</option>
-      <option value="u4" disabled>User 4 – Speech to text (mic permission needed)</option>
+      <option value="u2">User 2 – Our own mic UI (mic permission needed)</option>
+      <option value="u3">User 3 – Cleanup pass (mic permission needed)</option>
+      <option value="u4">User 4 – Speech to text (mic permission needed)</option>
     </select>
     <select id="outputRung" aria-label="Humara voice">
       <option value="h1" selected>Humara 1 – Text only</option>
@@ -300,7 +304,8 @@ const REPLIES = [
   {
     written: "I can help with that — are you looking to upgrade your current plan or start a new line of service?",
     spoken:  "Happy to help. Are you upgrading your plan, or adding a new line?",
-    audio:   "audio/h3-1.mp3"    // already paid for — see `audio` note below
+    audio:   "audio/h3-1.mp3",   // already paid for — see `audio` note below
+    audioSpoken: "audio/h4-1.mp3"
   },
   {
     written: "Based on what you've told me, our 500 Mbps plan would be a solid fit. Want me to check availability at your address?",
@@ -329,6 +334,9 @@ let replyIndex = 0;
 // the field grows with the text instead of scrolling internally — capped by
 // the max-height already set in CSS, which is what stops it running away
 function growInput() {
+  // drop the inline height entirely when empty, so it falls back to rows="1"
+  // rather than keeping a stale pixel value from whatever was there before
+  if (!input.value) { input.style.height = ''; return; }
   input.style.height = 'auto';
   input.style.height = input.scrollHeight + 'px';
 }
@@ -377,11 +385,17 @@ function report(bubble, rung, toAudio, total) {
 // published build runs on. The local harness overrides them from config.json,
 // so there is still one codebase and not a separate deployed variant.
 const STANDALONE_RUNGS = {
+  // U4 needs a key, and a key cannot live in a public page. Unlike H3 there is
+  // no fixed script to pre-render either, so this rung is permanently local-only.
+  // Declared explicitly so the page says so BEFORE asking for the microphone.
+  u4: { service: 'deepgram_nova3', label: 'Deepgram Nova-3', where: 'unavailable' },
   h2: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 },
   // clips rendered once locally and shipped as files, so the published build
   // costs nothing to re-test however many times it is opened
   h3: { service: 'elevenlabs', label: 'ElevenLabs', where: 'prerendered' },
-  h4: { service: 'web_speech', label: 'OS voice', where: 'browser', voice: 'Daniel', lang: 'en-GB', rate: 1 }
+  // the Alice clip for reply 1 was already paid for, so shipping it as a file
+  // gives the published build the real voice at no extra cost
+  h4: { service: 'elevenlabs', label: 'ElevenLabs', where: 'prerendered' }
 };
 
 let rungs = STANDALONE_RUNGS;
@@ -404,7 +418,7 @@ function speak(reply, bubble) {
     note(bubble, `${backing.label} · needs the local harness — no server in this build`);
     return;
   }
-  if (backing.where === 'prerendered') return prerendered(reply, bubble, backing);
+  if (backing.where === 'prerendered') return prerendered(reply, bubble, backing, rung);
   if (backing.where === 'browser') return robotReadBack(text, bubble, backing);
   return serverVoice(text, bubble, rung, backing);
 }
@@ -434,14 +448,16 @@ function pickVoice(cfg) {
 
 // H3 with no server — plays a clip rendered once and committed alongside the
 // page. Stays synchronous from the click so iOS doesn't refuse to play it.
-function prerendered(reply, bubble, backing) {
-  if (!reply.audio) {
+function prerendered(reply, bubble, backing, rung) {
+  // H4 speaks the shortened line, so it needs its own clip, not H3's
+  const src = rung === 'h4' ? reply.audioSpoken : reply.audio;
+  if (!src) {
     note(bubble, `${backing.label} · this reply isn't pre-rendered — no credits spent`);
     return;
   }
 
   const t0 = performance.now();
-  const audio = new Audio(reply.audio);
+  const audio = new Audio(src);
   audio.onplaying = () => note(bubble, `${backing.label} · ${fmt(performance.now() - t0)} to audio (pre-rendered)`);
   audio.onerror   = () => note(bubble, `${backing.label} · clip missing`);
   audio.play().catch(() => note(bubble, `${backing.label} · playback blocked — tap the page, then send again`));
@@ -520,7 +536,7 @@ function runCost(rung) {
 
 // built in the page rather than confirm() — embedded browsers suppress native
 // dialogs, and a suppressed confirm() reads as "cancel", silently blocking the rung
-function askMetered(rung, backing) {
+function askMetered(rung, backing, bodyText) {
   return new Promise(resolve => {
     const wrap = document.createElement('div');
     wrap.className = 'modal-wrap';
@@ -529,10 +545,10 @@ function askMetered(rung, backing) {
     title.textContent = `${rung.toUpperCase()} uses ${backing.label}`;
 
     const body = document.createElement('p');
-    body.textContent =
-      `This spends credits. A full run of all ${REPLIES.length} replies is `
+    body.textContent = bodyText ||
+      (`This spends credits. A full run of all ${REPLIES.length} replies is `
       + `${runCost(rung)} characters. Anything you have already heard is cached `
-      + `and costs nothing.`;
+      + `and costs nothing.`);
 
     const cancel = document.createElement('button');
     cancel.className = 'ghost';
@@ -597,12 +613,20 @@ outputRung.addEventListener('change', async () => {
 // is watching the demo, so it must never oversell what is behind a rung.
 const RUNG_NOTES = {
   u3: 'Hard-coded for now. It won’t correct typos or misheard words.',
+  u4: 'Our mic, Deepgram transcribes. Told our vocabulary in advance.',
 };
+
+// U4's phrase is a script to say out loud — the point is what the recogniser
+// does with our words, so pasting the text in would prove nothing
+const READ_ALOUD = ['u4'];
 
 // something to say out loud, or tap, when demoing a rung. Kept behind a
 // disclosure so the banner stays one line until it is wanted.
 const DEMO_PHRASES = {
-  u3: "Sorry to bother you, I was just wondering if I could upgrade my broadband to the five hundred meg package, because at the moment it's basically fifty pounds a month and it's not really working properly. And also, can you get an engineer out to look at the router, if that makes sense? Thanks."
+  u3: "Sorry to bother you, I was just wondering if I could upgrade my broadband to the five hundred meg package, because at the moment it's basically fifty pounds a month and it's not really working properly. And also, can you get an engineer out to look at the router, if that makes sense? Thanks.",
+  // deliberately stuffed with words no phone keyboard has any reason to know —
+  // that gap is the entire argument for paying a vendor at this rung
+  u4: "I'm with Ziggo on PAYG at the moment, but I want to switch to Humara — the five hundred Mbps fibre-to-the-premises package — and add a SIM-only plan and a MiFi for my daughter."
 };
 
 const banner = document.getElementById('banner');
@@ -623,25 +647,29 @@ function updateBanner() {
 
   if (!phraseRung) return;
 
-  // tapping the phrase runs the rung on it, so the change is demonstrable
-  // without needing to dictate — useful where the mic is unavailable
-  const phrase = document.createElement('button');
+  const sayItAloud = READ_ALOUD.includes(phraseRung);
+
+  // a button where tapping it proves something, plain text where it wouldn't
+  const phrase = document.createElement(sayItAloud ? 'p' : 'button');
   phrase.className = 'demo';
-  phrase.type = 'button';
   phrase.hidden = true;
   phrase.textContent = DEMO_PHRASES[phraseRung];
-  phrase.addEventListener('click', () => {
-    input.value = DEMO_PHRASES[phraseRung];
-    growInput();   // setting .value doesn't fire 'input', so this won't resize on its own
-    if (inputRung.value === 'u3') cleanupPass(DEMO_PHRASES[phraseRung]);
-    input.focus();
-  });
+
+  if (!sayItAloud) {
+    phrase.type = 'button';
+    phrase.addEventListener('click', () => {
+      input.value = DEMO_PHRASES[phraseRung];
+      growInput();   // setting .value doesn't fire 'input', so this won't resize on its own
+      if (inputRung.value === 'u3') cleanupPass(DEMO_PHRASES[phraseRung]);
+      input.focus();
+    });
+  }
 
   // a toggle rather than <details>, so the label stays on the banner's own line
   const toggle = document.createElement('button');
   toggle.className = 'toggle';
   toggle.type = 'button';
-  toggle.textContent = 'Example';
+  toggle.textContent = sayItAloud ? 'Say this' : 'Example';
   toggle.setAttribute('aria-expanded', 'false');
   toggle.addEventListener('click', () => {
     phrase.hidden = !phrase.hidden;
@@ -691,16 +719,103 @@ function setListening(on) {
 
 function showInputRung() {
   updateBanner();
-  // U3 is U2 plus a tidy-up, so both rungs need the mic
-  const needsMic = inputRung.value === 'u2' || inputRung.value === 'u3';
+  growInput();   // rung changes can leave a stale height behind
+  // U3 is U2 plus a tidy-up; U4 is a different engine entirely, but the same button
+  const rung = inputRung.value;
+  const needsMic = rung === 'u2' || rung === 'u3' || rung === 'u4';
   mic.hidden = !needsMic;
   document.getElementById('field').dataset.mic = needsMic ? 'on' : 'off';
-  if (!needsMic) { if (listening) recognition && recognition.stop(); return tell(''); }
+  if (!needsMic) {
+    if (listening) recognition && recognition.stop();
+    if (recording) stopRecording();
+    return tell('');
+  }
+  if (rung === 'u4') {
+    // say it up front rather than after recording — never ask for the mic for nothing
+    const backing = rungs.u4;
+    if (backing && backing.where === 'unavailable') {
+      mic.disabled = true;
+      return tell(`${backing.label} needs the local harness — no server in this build`);
+    }
+    mic.disabled = !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    return tell(mic.disabled
+      ? 'No microphone capture in this browser — that is the result'
+      : 'Ready · our capture, Deepgram transcribes · tap the mic and speak');
+  }
   if (!Recognition) { mic.disabled = true; return tell('No speech recognition in this browser — that is the result', 'error'); }
   mic.disabled = false;
-  tell(inputRung.value === 'u3'
+  tell(rung === 'u3'
     ? `Ready · ${ctorName} + cleanup · tap the mic and speak`
     : `Ready · ${ctorName} · tap the mic and speak`);
+}
+
+// --- U4: our capture, a contracted vendor transcribes it ----------------
+// Different from U2/U3 in kind, not just degree: those use the device's own
+// free engine start to finish. This one records real audio and sends it to
+// the server, which holds the Deepgram key and pays for every call.
+
+let mediaRecorder = null, recording = false, recordedChunks = [];
+
+function setRecording(on) {
+  recording = on;
+  mic.dataset.state = on ? 'listening' : 'idle';
+  mic.setAttribute('aria-label', on ? 'Stop recording' : 'Start recording');
+}
+
+async function startRecording() {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    return tell(e.name === 'NotAllowedError'
+      ? 'Mic blocked — allow it in Settings → Safari → Microphone, then reload'
+      : `Could not access the microphone (${e.name})`, 'error');
+  }
+
+  // codec support differs by browser — let the browser pick, then tell the server what it chose
+  const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg']
+    .find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+
+  recordedChunks = [];
+  mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = e => { if (e.data.size) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());   // release the mic the moment we're done with it
+    sendRecording(new Blob(recordedChunks, { type: mediaRecorder.mimeType || mimeType || 'audio/webm' }));
+  };
+
+  mediaRecorder.start();
+  setRecording(true);
+  tell('Recording… tap again to stop', 'live');
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+  setRecording(false);
+}
+
+async function sendRecording(blob) {
+  tell('Sending to Deepgram…', 'live');
+  const t0 = performance.now();
+  let response;
+  try {
+    response = await fetch('/stt', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+  } catch (e) {
+    return tell('Speech to text needs the local harness — no server in this build', 'error');
+  }
+
+  if (!response.ok) {
+    let message = 'HTTP ' + response.status;
+    try { message = (await response.json()).error || message; } catch (e) {}
+    return tell(`Deepgram unavailable · ${message}`, 'error');
+  }
+
+  const data = await response.json();
+  // never auto-send — STT gets things wrong, so the user confirms, same as U2/U3
+  const base = input.value ? input.value.trim() + ' ' : '';
+  input.value = base + (data.text || '');
+  growInput();
+  tell(`Transcript is in the box — edit it, then send · ${fmt(performance.now() - t0)}`);
 }
 
 // U3 — cleanup rules live here, in the page. No key, no server, so the rung
@@ -871,12 +986,29 @@ function cleanupPass(raw) {
   // the count is the demo: the shortening has to be visible, not just felt
   tell(`${before} → ${after} words (${cut > 0 ? '−' + cut + '%' : 'no change'}) · raw: “${raw}”`);
 }
-inputRung.addEventListener('change', showInputRung);
+let lastInputRung = inputRung.value;
+
+inputRung.addEventListener('change', async () => {
+  const rung = inputRung.value;
+  const backing = rungs[rung];
+
+  // same pattern as the output side: paid services ask before they can be selected
+  if (backing && backing.metered) {
+    const ok = await askMetered(rung, backing,
+      `This spends credits. Every recording sent to ${backing.label} costs money — `
+      + `there is no fixed script to count here, unlike the output rungs.`);
+    if (!ok) { inputRung.value = lastInputRung; return showInputRung(); }
+  }
+
+  lastInputRung = rung;
+  showInputRung();
+});
 showInputRung();
 
 mic.addEventListener('pointerdown', () => { if (listening) support.endedItself = false; });
 
 mic.addEventListener('click', () => {
+  if (inputRung.value === 'u4') return recording ? stopRecording() : startRecording();
   if (listening) { recognition && recognition.stop(); return; }   // explicit stop
 
   recognition = new Recognition();
